@@ -1,0 +1,13 @@
+{
+  "name": "object-01-core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python -m http.server 8767 --bind 127.0.0.1",
+    "test": "node --test --test-isolation=none tests/*.test.js"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "002",
+  "slug": "object-core",
+  "title": "OBJECT 01 / CORE",
+  "type": "interactive-study",
+  "status": "complete",
+  "concept": "Mechanics create the experience.",
+  "inputs": [
+    "pointer",
+    "drag",
+    "scroll",
+    "click",
+    "hold",
+    "touch",
+    "keyboard"
+  ],
+  "themes": [
+    "inspection",
+    "assembly",
+    "rotation",
+    "stabilization"
+  ],
+  "desktopPrimary": true,
+  "tech": [
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "Three.js",
+    "WebGL"
+  ],
+  "entry": "index.html"
+}

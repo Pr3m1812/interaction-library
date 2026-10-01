@@ -18,9 +18,21 @@ npm test
 
 Alternatively open `interactions/001-tension-filament/src/index.html` directly in a browser.
 
+## Run Study 002
+
+Requires Node.js 22 or newer and Python 3.
+
+```sh
+npm ci --prefix interactions/002-object-core
+npm start --prefix interactions/002-object-core
+# Open http://127.0.0.1:8767
+npm test --prefix interactions/002-object-core
+```
+
 ## Structure
 
 - `interactions/001-tension-filament/` — TENSION / FILAMENT, complete and locked.
+- `interactions/002-object-core/` � OBJECT 01 / CORE, complete and locked.
 - `shared/` — reserved for genuinely reusable utilities, shaders, and performance helpers; currently empty.
 - `library/` — documentation only. The public dashboard/catalog will be designed later.
 - `docs/interaction-standard.md` — lightweight entry conventions.
