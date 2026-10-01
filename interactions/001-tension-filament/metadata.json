@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "001",
+  "slug": "tension-filament",
+  "title": "TENSION / FILAMENT",
+  "type": "interactive-study",
+  "status": "complete",
+  "concept": "Every connection changes the whole.",
+  "inputs": [
+    "pointer",
+    "click",
+    "drag",
+    "double-click",
+    "touch"
+  ],
+  "themes": [
+    "connection",
+    "tension",
+    "rupture",
+    "repair",
+    "memory"
+  ],
+  "desktopPrimary": true,
+  "tech": [
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "Canvas 2D"
+  ],
+  "entry": "src/index.html"
+}

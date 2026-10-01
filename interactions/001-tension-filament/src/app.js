@@ -1,0 +1,158 @@
+/* TENSION · fixed-step spring network, adaptive topology, plastic memory. */
+'use strict';
+const canvas=document.querySelector('#field'),ctx=canvas.getContext('2d',{alpha:false});
+const motion=matchMedia('(prefers-reduced-motion: reduce)');
+let W=innerWidth,H=innerHeight,dpr=1,nodes=[],edges=[],original=[],anchors=[],grid=new Map(),time=0,lastInput=0,resetting=0;
+let seed=17,cell=40,acc=0,previous=0,slow=0,quality=1,frames=0;
+let tearQueue=[];
+const pointer={x:-1000,y:-1000,down:false,node:null,sx:0,sy:0,moved:false,lastTap:-1,tapX:0,tapY:0};
+const random=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function connect(a,b,rest,repair=1){const edge={a,b,rest,tension:0,threshold: 2.5+random()*.6,criticalTime:0,overloadTime:0,repair,broken:false,age:0};edges.push(edge);nodes[a].neighbors.add(edge);nodes[b].neighbors.add(edge);return edge;}
+function build(){
+ seed=17;tearQueue=[];nodes=[];edges=[];anchors=[];original=[];grid.clear();
+ const spacing=Math.max(W<650?20:17,Math.sqrt(W*H/(W<650?1050:2600)/quality));
+ const cols=Math.floor(W*.89/spacing),rows=Math.floor(H*.78/(spacing*.87));
+ for(let r=0;r<=rows;r++)for(let c=0;c<=cols;c++){
+ const u=c/cols,v=r/rows;
+ const x=W*.055+(c+(r%2)*.5)*spacing+(random()-.5)*spacing*.62+Math.sin(v*6.1)*spacing*1.1;
+ const y=H*.12+r*spacing*.87+(random()-.5)*spacing*.62+Math.sin(u*5.6+v*2)*H*.043;
+ nodes.push({x,y,rx:x,ry:y,vx:0,vy:0,mx:0,my:0,light:0,depth:random(),anchor:false,tx:x,ty:y,neighbors:new Set(),damping:.984});
+ }
+ const stride=cols+1;
+ for(let r=0;r<=rows;r++)for(let c=0;c<=cols;c++){
+ const a=r*stride+c;
+ for(const b of [c<cols?a+1:-1,r<rows?a+stride:-1,r<rows?(r%2?(c<cols?a+stride+1:-1):(c>0?a+stride-1:-1)):-1]){
+ if(b<0)continue;const p=nodes[a],q=nodes[b];const rest=Math.hypot(p.x-q.x,p.y-q.y);if(c>0&&c<cols&&r>0&&r<rows&&b!==a+1&&random()<.075)continue;connect(a,b,rest);original.push([a,b,rest]);
+ }
+ }
+ rebuildGrid();
+}
+function resize(){const oldW=W,oldH=H;W=innerWidth;H=innerHeight;dpr=Math.min(devicePixelRatio||1,1.65);canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);if(!nodes.length)build();else{const sx=W/oldW,sy=H/oldH;for(const p of nodes){p.x*=sx;p.rx*=sx;p.mx*=sx;p.tx*=sx;p.y*=sy;p.ry*=sy;p.my*=sy;p.ty*=sy;}for(const e of edges)e.rest*=Math.sqrt(sx*sy);for(const e of original)e[2]*=Math.sqrt(sx*sy);rebuildGrid();}}
+function rebuildGrid(){grid.clear();for(let i=0;i<nodes.length;i++){const p=nodes[i],key=Math.floor(p.x/cell)+','+Math.floor(p.y/cell);if(!grid.has(key))grid.set(key,[]);grid.get(key).push(i);}}
+function nearby(x,y,r){const result=[];for(let a=Math.floor((x-r)/cell);a<=Math.floor((x+r)/cell);a++)for(let b=Math.floor((y-r)/cell);b<=Math.floor((y+r)/cell);b++){const bucket=grid.get(a+','+b);if(bucket)for(const i of bucket)if(Math.hypot(nodes[i].x-x,nodes[i].y-y)<r)result.push(i);}return result;}
+function nearest(x,y,r){let best=null,dist=r;for(const i of nearby(x,y,r)){const d=Math.hypot(nodes[i].x-x,nodes[i].y-y);if(d<dist){best=i;dist=d;}}return best;}
+function pin(i){if(i===null)return;if(!nodes[i].anchor){if(anchors.length===6)release(anchors[0]);anchors.push(i);nodes[i].anchor=true;}nodes[i].tx=nodes[i].x;nodes[i].ty=nodes[i].y;nodes[i].vx=nodes[i].vy=0;}
+function release(i){nodes[i].anchor=false;anchors=anchors.filter(a=>a!==i);}
+function engage(){lastInput=time;document.body.classList.add('engaged');}
+// Neighbor tears retain the exact same strain and dwell requirements.
+function canRupture(e){
+ const a=nodes[e.a],b=nodes[e.b];
+ return !e.broken&&!resetting&&e.repair>=1&&e.criticalTime>=1.05&&e.overloadTime>=.65&&
+ (Math.hypot(b.x-a.x,b.y-a.y)-e.rest)/e.rest>e.threshold;
+}
+function breakEdge(e,spread=true){
+ if(e.broken)return;
+ const a=nodes[e.a],b=nodes[e.b];
+ if(spread){
+ const candidates=[...new Set([...a.neighbors,...b.neighbors])]
+ .filter(link=>link!==e&&!link.tearAt&&canRupture(link))
+ .sort((x,y)=>y.tension/y.threshold-x.tension/x.threshold).slice(0,3);
+ candidates.forEach((link,i)=>{link.tearAt=time+.035*(i+1);tearQueue.push(link);});
+ }
+ e.broken=true;e.age=0;e.delay=7.5+random()*1.5;
+ a.neighbors.delete(e);b.neighbors.delete(e);
+ a.scarUntil=Math.max(a.scarUntil||0,time+e.delay);
+ b.scarUntil=Math.max(b.scarUntil||0,time+e.delay);
+ const d=Math.hypot(b.x-a.x,b.y-a.y)||1;
+ e.scarX=(b.x-a.x)/d;e.scarY=(b.y-a.y)/d;
+ const kick=motion.matches?.9:3;
+ if(!a.anchor){a.vx-=e.scarX*kick;a.vy-=e.scarY*kick;}
+ if(!b.anchor){b.vx+=e.scarX*kick;b.vy+=e.scarY*kick;}
+}
+function repairEdge(e){
+ const a=nodes[e.a];if((a.scarUntil||0)>time)return;let best=-1,score=Infinity;
+ for(const j of nearby(a.x,a.y,e.rest*2.4)){
+ if(j===e.a||nodes[j].neighbors.size>=8||(nodes[j].scarUntil||0)>time)continue;
+ let exists=false;for(const link of a.neighbors)if(link.a===j||link.b===j){exists=true;break;}if(exists)continue;
+ const b=nodes[j],d=Math.hypot(b.x-a.x,b.y-a.y);if(d<e.rest*.45)continue;
+ const s=Math.abs(d-e.rest)+(j===e.b?e.rest*.8:0);if(s<score){score=s;best=j;}
+ }
+ if(best<0){e.age=e.delay-1;return;}
+ // Consolidate a little of the healed geometry into the resting shape.
+ // Deposits accumulate across repairs, with a local cap to prevent runaway drift.
+ for(const p of new Set([a,nodes[e.b],nodes[best]])){
+ const dx=p.x-p.rx-p.mx,dy=p.y-p.ry-p.my;
+ const length=Math.hypot(dx,dy),gain=length>2?Math.min(.025,1.5/length):0;
+ p.mx+=dx*gain;p.my+=dy*gain;
+ const memory=Math.hypot(p.mx,p.my),limit=Math.min(28,Math.min(W,H)*.04);
+ if(memory>limit){p.mx*=limit/memory;p.my*=limit/memory;}
+ }
+ e.b=best;e.rest=Math.hypot(nodes[best].x-a.x,nodes[best].y-a.y);e.broken=false;e.repair=.015;e.tension=0;e.criticalTime=e.overloadTime=0;a.neighbors.add(e);nodes[best].neighbors.add(e);
+}
+function step(){
+ time+=1/120;
+ // The grip follows the hand with a short lag; springs transmit its load.
+ for(const i of anchors){const p=nodes[i];p.x+=clamp((p.tx-p.x)*.055,-3,3);p.y+=clamp((p.ty-p.y)*.055,-3,3);}
+ for(const e of edges){
+ if(e.broken){
+ e.age+=1/120;
+ // Brief, bounded separation preserves the physical opening while scar tissue rests.
+ if(e.age<e.delay){
+ const a=nodes[e.a],b=nodes[e.b];
+ const separation=(b.x-a.x)*e.scarX+(b.y-a.y)*e.scarY;
+ const f=clamp((e.rest*1.6-separation)*.012,0,motion.matches?.05:.10);
+ if(!a.anchor){a.vx-=e.scarX*f;a.vy-=e.scarY*f;}
+ if(!b.anchor){b.vx+=e.scarX*f;b.vy+=e.scarY*f;}
+ }
+ if(e.age>e.delay&&!resetting)repairEdge(e);continue;
+ }
+ const a=nodes[e.a],b=nodes[e.b],dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||.001;
+ const strain=(d-e.rest)/e.rest;e.tension=Math.max(0,strain);
+ e.repair=Math.min(1,e.repair+1/540);
+ // Transient spikes cannot tear the field. Red precedes a sustained overload.
+ if(strain>e.threshold*.78)e.criticalTime+=1/120;else e.criticalTime=0;
+ if(strain>e.threshold)e.overloadTime+=1/120;else e.overloadTime=0;
+ if(!e.tearAt&&e.criticalTime>=1.05&&e.overloadTime>=.65&&e.repair>=1&&!resetting){breakEdge(e);continue;}
+ const f=clamp((d-e.rest)*.095*e.repair,-2.5,2.5)/d;
+ if(!a.anchor){a.vx+=dx*f;a.vy+=dy*f;}if(!b.anchor){b.vx-=dx*f;b.vy-=dy*f;}
+ }
+ for(let k=tearQueue.length-1;k>=0;k--){
+ const e=tearQueue[k];if(time<e.tearAt)continue;
+ e.tearAt=0;tearQueue.splice(k,1);if(canRupture(e))breakEdge(e,false);
+ }
+ const idle=time-lastInput,quiet=motion.matches;
+ for(const p of nodes){
+ const dx=p.x-p.rx,dy=p.y-p.ry,def=Math.hypot(dx,dy);
+ // A slowly moving plastic rest position retains seven percent of strong pulls.
+ if(def>24&&!resetting){if(Math.abs(dx*.07)>Math.abs(p.mx))p.mx+=(dx*.07-p.mx)*.004;if(Math.abs(dy*.07)>Math.abs(p.my))p.my+=(dy*.07-p.my)*.004;}
+ if(idle>15){p.mx*=.999985;p.my*=.999985;}
+ if(!p.anchor){const breath=quiet?0:Math.sin(time*.25+p.rx*.004+p.ry*.003)*(idle>12?.65:.22);p.vx+=(p.rx+p.mx-p.x)*.00065;p.vy+=(p.ry+p.my+breath-p.y)*.00065;p.vx*=quiet?.91:p.damping;p.vy*=quiet?.91:p.damping;p.x+=clamp(p.vx,-9,9);p.y+=clamp(p.vy,-9,9);}
+ p.light*=.978;
+ if(resetting){p.x+=(p.rx-p.x)*.018;p.y+=(p.ry-p.y)*.018;p.vx*=.85;p.vy*=.85;}
+ }
+ if(resetting)resetting=Math.max(0,resetting-1/120);
+}
+function draw(){
+ ctx.fillStyle='#090909';ctx.fillRect(0,0,W,H);
+ const batches=Array.from({length:24},()=>[]);
+ for(const e of edges){if(e.broken)continue;const a=nodes[e.a],b=nodes[e.b];const stress=clamp(e.tension/e.threshold,0,1),activity=Math.max(a.light,b.light);let level=stress<.78?Math.min(17,Math.floor(stress/.78*17+activity*3)):18+Math.floor((stress-.78)/.22*5);if(e.repair<1)level=0;batches[level].push(e);}
+ for(let k=0;k<24;k++){
+ const t=k/23,red=k>=18,shade=Math.round(61+Math.min(k/16,1)*194);ctx.strokeStyle=red?`rgb(244,${Math.round(160-(k-18)/5*94)},${Math.round(140-(k-18)/5*100)})`:`rgb(${shade},${shade},${Math.round(shade*.98)})`;ctx.lineWidth=.52+t*.26;
+ ctx.beginPath();for(const e of batches[k]){if(e.repair<1)continue;const a=nodes[e.a],b=nodes[e.b];ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);}ctx.stroke();
+ }
+ ctx.lineWidth=.45;for(const e of edges){if(e.broken||e.repair>=1)continue;ctx.strokeStyle=`rgba(165,162,157,${e.repair*.45})`;ctx.beginPath();ctx.moveTo(nodes[e.a].x,nodes[e.a].y);ctx.lineTo(nodes[e.b].x,nodes[e.b].y);ctx.stroke();}
+ ctx.fillStyle='#eeece7';for(const i of anchors){const p=nodes[i];ctx.beginPath();ctx.arc(p.x,p.y,1.8+p.depth*.4,0,Math.PI*2);ctx.fill();}
+}
+function frame(now){
+ if(document.hidden){previous=now;requestAnimationFrame(frame);return;}
+ const elapsed=previous?Math.min((now-previous)/1000,.045):1/60;previous=now;acc+=elapsed;let sub=0;while(acc>=1/120&&sub++<5){step();acc-=1/120;}rebuildGrid();draw();
+ // Density adaptation is limited to the untouched opening, preserving all user history.
+ if(frames++>60&&elapsed>.028)slow++;else slow=Math.max(0,slow-.25);
+ if(slow>90&&!document.body.classList.contains('engaged')&&quality>.6){quality*=.8;build();slow=0;}
+ requestAnimationFrame(frame);
+}
+canvas.addEventListener('pointerdown',e=>{engage();canvas.setPointerCapture(e.pointerId);pointer.down=true;pointer.sx=pointer.x=e.clientX;pointer.sy=pointer.y=e.clientY;pointer.moved=false;pointer.node=anchors.find(i=>Math.hypot(nodes[i].x-e.clientX,nodes[i].y-e.clientY)<(e.pointerType==='touch'?32:16))??null;if(e.pointerType!=='touch'&&pointer.node===null){pointer.node=nearest(e.clientX,e.clientY,38);pin(pointer.node);}});
+canvas.addEventListener('pointermove',e=>{
+ const x=e.clientX,y=e.clientY,dx=clamp(x-pointer.x,-55,55),dy=clamp(y-pointer.y,-55,55);pointer.x=x;pointer.y=y;
+ if(Math.abs(dx)+Math.abs(dy)>.3)engage();
+ if(pointer.down&&Math.hypot(x-pointer.sx,y-pointer.sy)>4)pointer.moved=true;
+ if(pointer.down&&pointer.node!==null){const p=nodes[pointer.node];p.tx=clamp(x,0,W);p.ty=clamp(y,0,H);p.light=1;return;}
+ const radius=75;for(const i of nearby(x,y,radius)){const p=nodes[i];if(p.anchor)continue;const fall=Math.pow(1-Math.hypot(p.x-x,p.y-y)/radius,2),factor=motion.matches?.022:.047;p.vx+=dx*fall*factor;p.vy+=dy*fall*factor;p.light=Math.min(1,p.light+fall*.6);}
+ canvas.style.cursor=anchors.some(i=>Math.hypot(nodes[i].x-x,nodes[i].y-y)<18)?'grab':'crosshair';
+});
+function up(e){if(!pointer.down)return;if(!pointer.moved){if(time-pointer.lastTap<.32&&Math.hypot(e.clientX-pointer.tapX,e.clientY-pointer.tapY)<28){const i=anchors.find(i=>Math.hypot(nodes[i].x-e.clientX,nodes[i].y-e.clientY)<35);if(i!==undefined)release(i);pointer.lastTap=-1;}else{pin(nearest(e.clientX,e.clientY,38));pointer.lastTap=time;pointer.tapX=e.clientX;pointer.tapY=e.clientY;}}pointer.down=false;pointer.node=null;}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',()=>{pointer.down=false;pointer.node=null;});
+canvas.addEventListener('dblclick',e=>{const i=anchors.find(i=>Math.hypot(nodes[i].x-e.clientX,nodes[i].y-e.clientY)<35);if(i!==undefined)release(i);});
+function reset(){anchors=[];tearQueue=[];for(const p of nodes){p.anchor=false;p.scarUntil=0;p.mx=p.my=0;p.neighbors.clear();}edges=[];for(const [a,b,r]of original)connect(a,b,r,.2);resetting=2;pointer.down=false;pointer.node=null;lastInput=time;}
+document.querySelector('#reset').addEventListener('click',reset);window.addEventListener('resize',resize);document.addEventListener('visibilitychange',()=>{previous=0;acc=0;});resize();requestAnimationFrame(frame);

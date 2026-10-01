@@ -1,0 +1,10 @@
+{
+  "name": "interaction-library",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone code-native interaction studies",
+  "scripts": {
+    "start": "python -m http.server 8766 --bind 127.0.0.1 --directory interactions/001-tension-filament/src",
+    "test": "node interactions/001-tension-filament/tests/verify.cjs"
+  }
+}
