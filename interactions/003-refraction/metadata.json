@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "003",
+  "slug": "refraction",
+  "title": "REFRACTION",
+  "type": "interactive-study",
+  "status": "complete",
+  "concept": "Perception changes the thing perceived.",
+  "inputs": [
+    "pointer",
+    "drag",
+    "hold",
+    "touch",
+    "keyboard"
+  ],
+  "themes": [
+    "optics",
+    "perception",
+    "refraction"
+  ],
+  "desktopPrimary": true,
+  "tech": [
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "Canvas 2D",
+    "WebGL"
+  ],
+  "entry": "index.html"
+}
